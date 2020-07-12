@@ -35,3 +35,18 @@ class Circle:
         gfxdraw.filled_circle(surface, self.pos[0], self.pos[1], self.radius+thickness//2, self.color)
         gfxdraw.aacircle(surface, self.pos[0], self.pos[1], self.radius-thickness//2, BG_COLOR)
         gfxdraw.filled_circle(surface, self.pos[0], self.pos[1], self.radius-thickness//2, BG_COLOR)
+
+class Button(pygame.Rect):
+    '''
+    Rectangular button graphics and functionality
+    '''
+    def __init__(self, x=0, y=0, width=100, height=20, text='Press', color=BG_COLOR):
+        self.rectangle = pygame.Rect(x, y, width, height)
+
+    def beingHovered(self, mouse_x, mouse_y):
+        if (self.rectangle.left <= mouse_x <= self.rectangle.right 
+            and self.rectangle.top <= mouse_y <= self.rectangle.bottom):
+            return True
+        else:
+            return False
+
