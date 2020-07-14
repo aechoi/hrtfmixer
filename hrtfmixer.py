@@ -19,9 +19,9 @@ from mixerGraphics import Circle
 
 def callback(in_data, frame_count, time_info, status):
     # uses the global paz and pel variables calculated using the pygame knob positions
-    px = np.sin(paz)*np.cos(pel)*dist
-    py = np.cos(paz)*np.cos(pel)*dist
-    pz = np.sin(pel)*dist
+    px = np.sin(paz)*np.cos(pel)*pr
+    py = np.cos(paz)*np.cos(pel)*pr
+    pz = np.sin(pel)*pr
 
     pp = np.array((px, py, pz))
 
@@ -46,11 +46,19 @@ def callback(in_data, frame_count, time_info, status):
     hrtfD = FIRs[origPosIndex[3],:,:]
 
     hrtf = hrtfA*gs[0]+hrtfB*gs[1]+hrtfC*gs[2]+hrtfD*gs[3]
+    # hrtf = hrtfA
+    global hrtfList, dataPrepend
+    if not np.array_equal(hrtfList[-1][0], hrtf[0]):
+        hrtfList.append(hrtf)
+        # if len(hrtfList)>2:
+        #     hrtf = np.array(hrtfList[-2])*.99 + hrtf*.01
 
     # Now read the data, apply the convolution, and output
-    global overlapLeft, overlapRight
+    # global overlapLeft, overlapRight
     data = wf.readframes(frame_count)
     data_int = np.frombuffer(data, dtype=np.int16)
+    data_int = np.concatenate((dataPrepend, data_int))
+    dataPrepend = data_int[-overlapAmount:]
 
     # Convolve with the hrtf
     binaural_left = scipy.signal.fftconvolve(data_int,hrtf[0])
@@ -58,15 +66,11 @@ def callback(in_data, frame_count, time_info, status):
 
     # Overlap-add of convolution tails
     if len(binaural_left)>0:
-        binaural_left = binaural_left + overlapLeft[:len(binaural_left)]
-        overlapLeft[:hrtfExtra] = binaural_left[-hrtfExtra:]
-        binaural_left = binaural_left[:-hrtfExtra]
+        binaural_left = binaural_left[overlapAmount:-overlapAmount]
         binaural_left = binaural_left.astype(np.int16)
         soundPlot[0].extend(binaural_left)
 
-        binaural_right = binaural_right + overlapRight[:len(binaural_right)]
-        overlapRight[:hrtfExtra] = binaural_right[-hrtfExtra:]
-        binaural_right = binaural_right[:-hrtfExtra]
+        binaural_right = binaural_right[overlapAmount:-overlapAmount]
         binaural_right = binaural_right.astype(np.int16)
         soundPlot[1].extend(binaural_right)
 
@@ -81,6 +85,7 @@ def callback(in_data, frame_count, time_info, status):
 # Everything in here is run once
 ##### SETUP
 soundPlot = [[],[]]
+hrtfList = [[0,0]]
 if True:
     ##### HRTF Setup
     def setupHRTF():
@@ -104,11 +109,24 @@ if True:
         # Turn az and el into radians
         sourcePositions[:,:2] *= np.pi/180
 
+        # Increasing cull Amount might get rid of the snipping?
+        # I think it's happening because the point moves enough to make it sound discontinuous
+        # look to see how the pyo package deals with it? Maybe it is just a matter of speeding up
+        # how often the azs and els are sampled
+
+        # Maybe subpixel continuity would help too?
+
+        # This actually has a functional purpose outside of less computation. Delaunay triangulation requires
+        # a sparse distribution of points to maintain numerical stability. Otherwise you get high aspect ratio
+        # tetrahedrons (tets) that can flatten out or have super high magnitude inverses (used in tet searching).
+        cullAmount = 3
+
         # We double the surface of points and offset it outwards in order
         # to create a sheath of delaunay tetrahedrons with good aspect ratios.
         # The mean free path is actually just the approximate point to point distance
         # when you speckle points on a sphere, but mean free path sounded cooler.
-        meanFreePath = 4*max(sourcePositions[:,2])/np.sqrt(len(sourcePositions))
+        meanFreePath = 4*max(sourcePositions[:,2])/np.sqrt(len(sourcePositions)/cullAmount)
+        print(meanFreePath)
         sourcePositions[len(sourcePositions)//2:,2] += meanFreePath
 
         maxR = max(sourcePositions[:,2])-meanFreePath/2
@@ -120,7 +138,7 @@ if True:
         # Extract all az, el, r. NOTE: These are in the same order as the sourcePositions list
         az = np.array(sourcePositions[:,0])
         el = np.array(sourcePositions[:,1])
-        r = np.array(sourcePositions[:,2])
+        r = np.array(sourcePositions[:,2]) 
 
         xs = np.sin(az)*np.cos(el)*r
         ys = np.cos(az)*np.cos(el)*r
@@ -140,10 +158,7 @@ if True:
         # points is now a list of [x,y,z] in the order of sourcePositions
         points = np.array([xs, ys, zs]).transpose()
 
-        # This actually has a functional purpose outside of less computation. Delaunay triangulation requires
-        # a sparse distribution of points to maintain numerical stability. Otherwise you get high aspect ratio
-        # tetrahedrons (tets) that can flatten out or have super high magnitude inverses (used in tet searching).
-        cullAmount = 3
+        
         sourcePositions = sourcePositions[::cullAmount]
         FIRs = FIRs[::cullAmount]
         points = points[::cullAmount]
@@ -169,7 +184,7 @@ if True:
                     # If there's a flat object, it's going to create an
                     # infinite value for the inverse matrix (det = 0)
                     planarCount += 1
-            # print(planarCount)
+            print(planarCount)
             return Ainv
 
         Tinv = fast_inverse(T) # a list of all the barycentric inverses of T, listed in the same order as the tetras in tri and tetraCoords
@@ -178,9 +193,17 @@ if True:
     # These are the only parameters from the setup that matter
     tetraCoords, Tinv, tri, FIRs, maxR = setupHRTF()
 
+
+    # If chunk size is too high, then movement will not be smooth because
+    # every chunk is played at a particular az/el/r.
+    # If chunk size is too low, then your computer will not be able to 
+    # process the audio fast enough.
+    CHUNK = 30
+
     # This is the overlap value of the convolution. When you convolve
     # the FIR with the audio signal, it will have a tail that is this long.
-    hrtfExtra = FIRs.shape[2]-1
+    overlapAmount = FIRs.shape[2]-1
+    dataPrepend = np.zeros(overlapAmount)
 
     # Initializing the current tetrahedron index for the callback function
     # By starting the search at our last known index, we greatly reduce the
@@ -193,19 +216,9 @@ if True:
 
     ##### Recording Setup
     filePath = 'C:/Users/Alex/Videos/ASMR/'
-    fileName = '440sin.wav'
+    fileName = 'testAudioFile.wav'
     wf = wave.open(filePath+fileName, 'rb')
     p = pyaudio.PyAudio()
-
-    # If chunk size is too high, then movement will not be smooth because
-    # every chunk is played at a particular az/el/r.
-    # If chunk size is too low, then your computer will not be able to 
-    # process the audio fast enough.
-    CHUNK = 50
-
-    # prepare convolution overlap windows, len(hrtf)-1 + CHUNK
-    overlapLeft = np.zeros(hrtfExtra+CHUNK)
-    overlapRight = np.zeros(hrtfExtra+CHUNK)
 
     # This is the .wav file output
     recording = []
@@ -219,7 +232,6 @@ if True:
     # plt.plot(dataviz_int[::100])
     # plt.show()
 
-    # clock = pygame.time.Clock()
     running = True
 
     azimuth = 0
@@ -229,7 +241,7 @@ if True:
     pel = elevation
     pr = dist
 
-    pathing = False
+    playing = False
 
     stream = p.open(
         format=p.get_format_from_width(wf.getsampwidth()),
@@ -243,11 +255,11 @@ if True:
     # while stream.is_active():
     #     time.sleep(0.1)
 
-   
 
 ##### GUI RUNNING ####
 def gameGUI():
-    global azimuth, elevation, dist, paz, pel, pr, pathing
+    counter = 0
+    global azimuth, elevation, dist, paz, pel, pr, playing
      ##### GUI SETUP
     SCREEN_WIDTH = 1000
     SCREEN_HEIGHT = 1000
@@ -266,7 +278,8 @@ def gameGUI():
     # to play the next bit of audio. This makes it choppy, and always will
     # be unless you can run at 44,100 fps, and I promise you your TN can't
     # do that, no matter what reddit told you.
-    # FPS = 60
+    FPS = 60
+    clock = pygame.time.Clock()
 
     pygame.init()
     window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
@@ -308,7 +321,7 @@ def gameGUI():
     def updateGraphics():
         window.fill(BG_COLOR)
 
-        if pathing:
+        if playing:
             largeText = pygame.font.SysFont('lucida console',20)
             TextSurf, TextRect = text_objects('Press [SPACE] to stop recording...', largeText, color_O)
             TextRect.left = SCREEN_WIDTH/8/2
@@ -321,7 +334,7 @@ def gameGUI():
             TextRect.top = SCREEN_HEIGHT/8
             window.blit(TextSurf, TextRect)
 
-        if not pathing:
+        if not playing:
             largeText = pygame.font.SysFont('lucida console',20)
             TextSurf, TextRect = text_objects('Press [SPACE] to record...', largeText, color_B)
             TextRect.left = SCREEN_WIDTH/8/2
@@ -368,8 +381,10 @@ def gameGUI():
         pygame.display.update()
 
     running = True
+    # updateGraphics()
     while running:
         ### EVENTS
+        startTime = time.perf_counter()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -467,8 +482,8 @@ def gameGUI():
                 key_name = pygame.key.name(event.key)
                 pressing_List.append(key_name)
                 if key_name == 'space':
-                    pathing = not pathing
-                    if pathing:
+                    playing = not playing
+                    if playing:
                         stream.start_stream()
                         for cursor in cursorList:
                             cursor.color=color_R
@@ -543,10 +558,12 @@ def gameGUI():
             polCursor.pos = (int(np.cos(azimuth-np.pi/2)*polPlot.radius*(90-elevation*180/np.pi)/140)+polPlot.pos[0], 
                              int(np.sin(azimuth-np.pi/2)*polPlot.radius*(90-elevation*180/np.pi)/140)+polPlot.pos[1])
 
+        # print(time.perf_counter()-startTime)
         ### DRAWS
+        # if first:
         updateGraphics()
-
-        # clock.tick(FPS)
+        # first=False
+        clock.tick(FPS)
 
 gameGUI()
 
@@ -561,11 +578,19 @@ p.terminate()
 # ax = fig.add_subplot(211)
 # ax.plot(soundPlot[0])
 # ax = fig.add_subplot(212)
-# ax.plot(soundPlot[1])
+# ax.plot(np.arange(len(soundPlot[1]))/44100, soundPlot[1])
+
+# fig2 = plt.figure()
+# ax2 = fig2.add_subplot(311)
+# ax2.plot(hrtfList[1][0])
+# ax22 = fig2.add_subplot(312)
+# ax22.plot(hrtfList[2][0])
+# ax23 = fig2.add_subplot(313)
+# ax23.plot(hrtfList[3][0])
 # plt.show()
 if recording:
     WAVE_OUTPUT_FILENAME = filePath + fileName[:-4]
-    WAVE_OUTPUT_FILENAME = WAVE_OUTPUT_FILENAME + ' hrtf pathing.wav'
+    WAVE_OUTPUT_FILENAME = WAVE_OUTPUT_FILENAME + ' hrtf playing.wav'
     # WAVE_OUTPUT_FILENAME = '/'.join(WAVE_OUTPUT_FILENAME)
 
     waveOut = wave.open(WAVE_OUTPUT_FILENAME, 'wb')
