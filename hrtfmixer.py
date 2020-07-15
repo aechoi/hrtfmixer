@@ -193,6 +193,19 @@ if True:
     # These are the only parameters from the setup that matter
     tetraCoords, Tinv, tri, FIRs, maxR = setupHRTF()
 
+    averageFIR = np.zeros((2, FIRs.shape[2]))
+    for FIR in FIRs:
+        averageFIR += FIR/len(FIRs)
+
+    fig = plt.figure()
+    ax1 = fig.add_subplot(311)
+    ax2 = fig.add_subplot(312)
+    ax3 = fig.add_subplot(313)
+    ax1.plot(averageFIR[0])
+    ax2.plot(averageFIR[1])
+    ax3.plot(FIRs[0,0])
+    plt.show()
+    aoeu
 
     # If chunk size is too high, then movement will not be smooth because
     # every chunk is played at a particular az/el/r.
@@ -278,8 +291,8 @@ def gameGUI():
     # to play the next bit of audio. This makes it choppy, and always will
     # be unless you can run at 44,100 fps, and I promise you your TN can't
     # do that, no matter what reddit told you.
-    FPS = 60
-    clock = pygame.time.Clock()
+    # FPS = 60
+    # clock = pygame.time.Clock()
 
     pygame.init()
     window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
@@ -317,6 +330,8 @@ def gameGUI():
     pressing_List = []
 
     screenChange = False
+
+    positionList = []
 
     def updateGraphics():
         window.fill(BG_COLOR)
@@ -485,8 +500,12 @@ def gameGUI():
                     playing = not playing
                     if playing:
                         stream.start_stream()
-                        for cursor in cursorList:
-                            cursor.color=color_R
+                        if not positionList:
+                            for cursor in cursorList:
+                                cursor.color=color_R
+                        else:
+                            for cursor in cursorList:
+                                cursor.color=color_G
                     else:
                         stream.stop_stream()
                         for cursor in cursorList:
@@ -544,11 +563,17 @@ def gameGUI():
 
         # Set HRTF parameters
         # Everything enters and leaves in radians
-        azimuth = np.arctan2(azCursor.pos[1]-azPlot.pos[1], 
-                            azCursor.pos[0]-azPlot.pos[0])+np.pi/2
-        elevation = (elPlot.bottom-elCursor.pos[1])/elPlot.height*140-50
-        elevation = elevation*np.pi/180
-        dist = (rCursor.pos[0]-rPlot.left)/rPlot.width*(maxR-minR) + minR
+        if not positionList:
+            azimuth = np.arctan2(azCursor.pos[1]-azPlot.pos[1], 
+                                azCursor.pos[0]-azPlot.pos[0])+np.pi/2
+            elevation = (elPlot.bottom-elCursor.pos[1])/elPlot.height*140-50
+            elevation = elevation*np.pi/180
+            dist = (rCursor.pos[0]-rPlot.left)/rPlot.width*(maxR-minR) + minR
+        else:
+            azimuth = positionList[posIn][0]
+            elevation = positionList[posIn][1]
+            dist = positionList[posIn][2]
+            time.sleep(positionList[posIn-1][3])
         paz = -azimuth
         pel = elevation
         pr = dist
@@ -590,7 +615,7 @@ p.terminate()
 # plt.show()
 if recording:
     WAVE_OUTPUT_FILENAME = filePath + fileName[:-4]
-    WAVE_OUTPUT_FILENAME = WAVE_OUTPUT_FILENAME + ' hrtf playing.wav'
+    WAVE_OUTPUT_FILENAME = WAVE_OUTPUT_FILENAME + ' hrtf.wav'
     # WAVE_OUTPUT_FILENAME = '/'.join(WAVE_OUTPUT_FILENAME)
 
     waveOut = wave.open(WAVE_OUTPUT_FILENAME, 'wb')
