@@ -10,6 +10,7 @@ import time # debugging
 import pygame # user interface for hrtf measurement location input
 # from pygame import gfxdraw
 from mixerGraphics import Circle
+import filename_dragger
 
 ##### CALLBACK
 # While the stream is playing, it can processes the next bit of audio data in callback
@@ -92,7 +93,8 @@ if True:
         # Paths to sofa files
         # You can download these at https://www.sofaconventions.org/mediawiki/index.php/Files
         # Code should work for any spherically recorded HRTFs
-        folderPath = 'C:/Users/Alex/Documents/hrtf/THK_FFHRIR/'
+        # This one is included in the resources folder of the repository
+        folderPath = 'resources/THK_FFHRIR/'
         fileNames = [
             'HRIR_L2354',
             'HRIR_L2354'
@@ -126,7 +128,6 @@ if True:
         # The mean free path is actually just the approximate point to point distance
         # when you speckle points on a sphere, but mean free path sounded cooler.
         meanFreePath = 4*max(sourcePositions[:,2])/np.sqrt(len(sourcePositions)/cullAmount)
-        print(meanFreePath)
         sourcePositions[len(sourcePositions)//2:,2] += meanFreePath
 
         maxR = max(sourcePositions[:,2])-meanFreePath/2
@@ -183,8 +184,9 @@ if True:
                 except np.linalg.LinAlgError:
                     # If there's a flat object, it's going to create an
                     # infinite value for the inverse matrix (det = 0)
+                    # Use this value to help debug geometry
                     planarCount += 1
-            print(planarCount)
+            # print(planarCount)
             return Ainv
 
         Tinv = fast_inverse(T) # a list of all the barycentric inverses of T, listed in the same order as the tetras in tri and tetraCoords
@@ -193,19 +195,19 @@ if True:
     # These are the only parameters from the setup that matter
     tetraCoords, Tinv, tri, FIRs, maxR = setupHRTF()
 
-    averageFIR = np.zeros((2, FIRs.shape[2]))
-    for FIR in FIRs:
-        averageFIR += FIR/len(FIRs)
+    # averageFIR = np.zeros((2, FIRs.shape[2]))
+    # for FIR in FIRs:
+    #     averageFIR += FIR/len(FIRs)
 
-    fig = plt.figure()
-    ax1 = fig.add_subplot(311)
-    ax2 = fig.add_subplot(312)
-    ax3 = fig.add_subplot(313)
-    ax1.plot(averageFIR[0])
-    ax2.plot(averageFIR[1])
-    ax3.plot(FIRs[0,0])
-    plt.show()
-    aoeu
+    # fig = plt.figure()
+    # ax1 = fig.add_subplot(311)
+    # ax2 = fig.add_subplot(312)
+    # ax3 = fig.add_subplot(313)
+    # ax1.plot(averageFIR[0])
+    # ax2.plot(averageFIR[1])
+    # ax3.plot(FIRs[0,0])
+    # plt.show()
+
 
     # If chunk size is too high, then movement will not be smooth because
     # every chunk is played at a particular az/el/r.
@@ -228,9 +230,11 @@ if True:
     minR = 0.075
 
     ##### Recording Setup
-    filePath = 'C:/Users/Alex/Videos/ASMR/'
-    fileName = 'testAudioFile.wav'
-    wf = wave.open(filePath+fileName, 'rb')
+    dragger = filename_dragger.dragStarter()
+    file = dragger.fileName[0]
+    # filePath = 'C:/Users/Alex/Videos/ASMR/'
+    # fileName = 'testAudioFile.wav'
+    wf = wave.open(file, 'rb')
     p = pyaudio.PyAudio()
 
     # This is the .wav file output
@@ -291,8 +295,8 @@ def gameGUI():
     # to play the next bit of audio. This makes it choppy, and always will
     # be unless you can run at 44,100 fps, and I promise you your TN can't
     # do that, no matter what reddit told you.
-    # FPS = 60
-    # clock = pygame.time.Clock()
+    FPS = 60
+    clock = pygame.time.Clock()
 
     pygame.init()
     window = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
@@ -614,7 +618,7 @@ p.terminate()
 # ax23.plot(hrtfList[3][0])
 # plt.show()
 if recording:
-    WAVE_OUTPUT_FILENAME = filePath + fileName[:-4]
+    WAVE_OUTPUT_FILENAME = file[:-4] # filePath + fileName[:-4]
     WAVE_OUTPUT_FILENAME = WAVE_OUTPUT_FILENAME + ' hrtf.wav'
     # WAVE_OUTPUT_FILENAME = '/'.join(WAVE_OUTPUT_FILENAME)
 
