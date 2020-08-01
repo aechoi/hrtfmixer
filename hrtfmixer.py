@@ -69,11 +69,11 @@ def callback(in_data, frame_count, time_info, status):
     if len(binaural_left)>0:
         binaural_left = binaural_left[overlapAmount:-overlapAmount]
         binaural_left = binaural_left.astype(np.int16)
-        soundPlot[0].extend(binaural_left)
+        # soundPlot[0].extend(binaural_left)
 
         binaural_right = binaural_right[overlapAmount:-overlapAmount]
         binaural_right = binaural_right.astype(np.int16)
-        soundPlot[1].extend(binaural_right)
+        # soundPlot[1].extend(binaural_right)
 
     # Interleave into stereo byte array
     binaural = np.empty((binaural_left.size + binaural_right.size,), dtype=np.int16)
@@ -85,8 +85,8 @@ def callback(in_data, frame_count, time_info, status):
 
 # Everything in here is run once
 ##### SETUP
-soundPlot = [[],[]]
-hrtfList = [[0,0]]
+soundPlot = [[],[]] # Get the waveform of the output as an int array
+hrtfList = [[0,0]] # Get the hrtf profile
 if True:
     ##### HRTF Setup
     def setupHRTF():
@@ -240,6 +240,10 @@ if True:
     # This is the .wav file output
     recording = []
 
+    sourcePath = []
+    # sourcePath = [[np.pi/2,0,2,2],
+    #         [-np.pi/2,0,2,2]]
+
     # #### Recording Viz Setup
     # # A way to see what waveforms are coming up
     # wfviz = wave.open(fileName, 'rb')
@@ -269,14 +273,18 @@ if True:
         start = False,
         stream_callback=callback)
 
-    # while stream.is_active():
-    #     time.sleep(0.1)
-
-
 ##### GUI RUNNING ####
-def gameGUI():
-    counter = 0
+def gameGUI(sourcePath=[]):
     global azimuth, elevation, dist, paz, pel, pr, playing
+
+    sourcePath = sourcePath
+    posIn = 0
+    scrubTime = 0
+    limitTime = 0
+    startTime = 0
+    downTime = 0
+    pauseStart = 0
+
      ##### GUI SETUP
     SCREEN_WIDTH = 1000
     SCREEN_HEIGHT = 1000
@@ -334,8 +342,6 @@ def gameGUI():
     pressing_List = []
 
     screenChange = False
-
-    positionList = []
 
     def updateGraphics():
         window.fill(BG_COLOR)
@@ -403,7 +409,6 @@ def gameGUI():
     # updateGraphics()
     while running:
         ### EVENTS
-        startTime = time.perf_counter()
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -432,85 +437,91 @@ def gameGUI():
 
                 screenChange = True
                 
-            # Test for MOUSEBUTTONDOWN events
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                # User pressed mouse buttons
-                if event.button == 1:
-                    pos = pygame.mouse.get_pos()
-                    for i, cursor in enumerate(cursorList):
-                        if ((pos[0]-cursor.pos[0])**2 + (pos[1]-cursor.pos[1])**2 < cursor.radius**2):
-                            # if click on any of the control cursors then 
-                            # that's the active cursor now
-                            activeCursor = cursor
+            if not sourcePath:
+                # Test for MOUSEBUTTONDOWN events
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    # User pressed mouse buttons
+                    if event.button == 1:
+                        pos = pygame.mouse.get_pos()
+                        for i, cursor in enumerate(cursorList):
+                            if ((pos[0]-cursor.pos[0])**2 + (pos[1]-cursor.pos[1])**2 < cursor.radius**2):
+                                # if click on any of the control cursors then 
+                                # that's the active cursor now
+                                activeCursor = cursor
 
-                            # This keeps the control cursor from snapping
-                            # its center to the mouse
-                            mouse_x, mouse_y = event.pos
-                            offset_x = activeCursor.pos[0] - mouse_x
-                            offset_y = activeCursor.pos[1] - mouse_y
-                            break
+                                # This keeps the control cursor from snapping
+                                # its center to the mouse
+                                mouse_x, mouse_y = event.pos
+                                offset_x = activeCursor.pos[0] - mouse_x
+                                offset_y = activeCursor.pos[1] - mouse_y
+                                break
 
-            elif event.type == pygame.MOUSEBUTTONUP:
-                # User released mouse buttons
-                if event.button == 1:
-                    activeCursor = None
+                elif event.type == pygame.MOUSEBUTTONUP:
+                    # User released mouse buttons
+                    if event.button == 1:
+                        activeCursor = None
 
-            elif event.type == pygame.MOUSEMOTION:
-                # Move the plots only, location parameters not changed here
-                # Az, el, and distance are altered in the update section
-                if activeCursor is not None:
-                    mouse_x, mouse_y = event.pos
-                    activeCursor.pos = (mouse_x + offset_x, mouse_y + offset_y)
+                elif event.type == pygame.MOUSEMOTION:
+                    # Move the plots only, location parameters not changed here
+                    # Az, el, and distance are altered in the update section
+                    if activeCursor is not None:
+                        mouse_x, mouse_y = event.pos
+                        activeCursor.pos = (mouse_x + offset_x, mouse_y + offset_y)
 
-                    # Polar Plot
-                    if activeCursor == polCursor:
-                        pC_rad = polCursor.radDist(polPlot)**0.5
-                        if pC_rad > polPlot.radius:
-                            pol_xlim = (polCursor.pos[0]-polPlot.pos[0])/pC_rad*polPlot.radius
-                            pol_ylim = (polCursor.pos[1]-polPlot.pos[1])/pC_rad*polPlot.radius
-                            polCursor.pos = (int(pol_xlim)+polPlot.pos[0],
-                                            int(pol_ylim)+polPlot.pos[1])
+                        # Polar Plot
+                        if activeCursor == polCursor:
+                            pC_rad = polCursor.radDist(polPlot)**0.5
+                            if pC_rad > polPlot.radius:
+                                pol_xlim = (polCursor.pos[0]-polPlot.pos[0])/pC_rad*polPlot.radius
+                                pol_ylim = (polCursor.pos[1]-polPlot.pos[1])/pC_rad*polPlot.radius
+                                polCursor.pos = (int(pol_xlim)+polPlot.pos[0],
+                                                int(pol_ylim)+polPlot.pos[1])
 
-                    # Az Plot                
-                    elif activeCursor == azCursor:
-                        aC_rad = azCursor.radDist(azPlot)**0.5
-                        if aC_rad != azPlot.radius:
-                            az_xlim = (azCursor.pos[0]-azPlot.pos[0])/aC_rad*azPlot.radius
-                            az_ylim = (azCursor.pos[1]-azPlot.pos[1])/aC_rad*azPlot.radius
-                            azCursor.pos = (int(az_xlim)+azPlot.pos[0],
-                                            int(az_ylim)+azPlot.pos[1])
+                        # Az Plot                
+                        elif activeCursor == azCursor:
+                            aC_rad = azCursor.radDist(azPlot)**0.5
+                            if aC_rad != azPlot.radius:
+                                az_xlim = (azCursor.pos[0]-azPlot.pos[0])/aC_rad*azPlot.radius
+                                az_ylim = (azCursor.pos[1]-azPlot.pos[1])/aC_rad*azPlot.radius
+                                azCursor.pos = (int(az_xlim)+azPlot.pos[0],
+                                                int(az_ylim)+azPlot.pos[1])
 
-                    # El Plot
-                    elif activeCursor == elCursor:
-                        elCursor.pos = (elPlot.centerx, elCursor.pos[1])
-                        if elCursor.pos[1]>elPlot.bottom:
-                            elCursor.pos = (elCursor.pos[0], elPlot.bottom)
+                        # El Plot
+                        elif activeCursor == elCursor:
+                            elCursor.pos = (elPlot.centerx, elCursor.pos[1])
+                            if elCursor.pos[1]>elPlot.bottom:
+                                elCursor.pos = (elCursor.pos[0], elPlot.bottom)
 
-                        elif  elCursor.pos[1]<elPlot.top:
-                            elCursor.pos = (elCursor.pos[0], elPlot.top)
+                            elif  elCursor.pos[1]<elPlot.top:
+                                elCursor.pos = (elCursor.pos[0], elPlot.top)
 
-                    # R Plot
-                    elif activeCursor == rCursor:
-                        rCursor.pos = (rCursor.pos[0], rPlot.centery)
-                        if rCursor.pos[0]>rPlot.right:
-                            rCursor.pos = (rPlot.right, rCursor.pos[1])
-                        elif  rCursor.pos[0]<rPlot.left:
-                            rCursor.pos = (rPlot.left, rCursor.pos[1])
+                        # R Plot
+                        elif activeCursor == rCursor:
+                            rCursor.pos = (rCursor.pos[0], rPlot.centery)
+                            if rCursor.pos[0]>rPlot.right:
+                                rCursor.pos = (rPlot.right, rCursor.pos[1])
+                            elif  rCursor.pos[0]<rPlot.left:
+                                rCursor.pos = (rPlot.left, rCursor.pos[1])
 
-            elif event.type == pygame.KEYDOWN:
+            if event.type == pygame.KEYDOWN:
                 key_name = pygame.key.name(event.key)
                 pressing_List.append(key_name)
                 if key_name == 'space':
                     playing = not playing
                     if playing:
+                        if startTime == 0:
+                            startTime = time.time()
+                        if pauseStart != 0:
+                            downTime = downTime + (time.time()-pauseStart)
                         stream.start_stream()
-                        if not positionList:
+                        if not sourcePath:
                             for cursor in cursorList:
                                 cursor.color=color_R
                         else:
                             for cursor in cursorList:
                                 cursor.color=color_G
                     else:
+                        pauseStart = time.time()
                         stream.stop_stream()
                         for cursor in cursorList:
                             cursor.color=color_B
@@ -567,17 +578,25 @@ def gameGUI():
 
         # Set HRTF parameters
         # Everything enters and leaves in radians
-        if not positionList:
+        if not sourcePath:
             azimuth = np.arctan2(azCursor.pos[1]-azPlot.pos[1], 
                                 azCursor.pos[0]-azPlot.pos[0])+np.pi/2
             elevation = (elPlot.bottom-elCursor.pos[1])/elPlot.height*140-50
             elevation = elevation*np.pi/180
             dist = (rCursor.pos[0]-rPlot.left)/rPlot.width*(maxR-minR) + minR
         else:
-            azimuth = positionList[posIn][0]
-            elevation = positionList[posIn][1]
-            dist = positionList[posIn][2]
-            time.sleep(positionList[posIn-1][3])
+            if playing:
+                scrubTime = time.time()-startTime-downTime
+            if scrubTime >= limitTime:
+                if posIn >= len(sourcePath):
+                    break
+                azimuth = sourcePath[posIn][0]
+                elevation = sourcePath[posIn][1]
+                dist = sourcePath[posIn][2]
+                limitTime = limitTime + sourcePath[posIn][3]
+
+                posIn += 1
+
         paz = -azimuth
         pel = elevation
         pr = dist
@@ -587,14 +606,14 @@ def gameGUI():
             polCursor.pos = (int(np.cos(azimuth-np.pi/2)*polPlot.radius*(90-elevation*180/np.pi)/140)+polPlot.pos[0], 
                              int(np.sin(azimuth-np.pi/2)*polPlot.radius*(90-elevation*180/np.pi)/140)+polPlot.pos[1])
 
-        # print(time.perf_counter()-startTime)
         ### DRAWS
         # if first:
         updateGraphics()
         # first=False
         clock.tick(FPS)
 
-gameGUI()
+
+gameGUI(sourcePath)
 
 pygame.quit()
 
